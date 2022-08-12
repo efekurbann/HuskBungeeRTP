@@ -12,6 +12,8 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 import redis.clients.jedis.JedisPubSub;
 
 import java.util.UUID;
@@ -19,39 +21,38 @@ import java.util.UUID;
 public class RedisMessenger {
 
     private static final String REDIS_CHANNEL = "HuskBungeeRtp";
+    private static JedisPool jedisPool;
 
     public static void subscribe() {
-        Jedis jedis = new Jedis(HuskBungeeRTP.getSettings().getRedisHost(), HuskBungeeRTP.getSettings().getRedisPort());
-        final String jedisPassword = HuskBungeeRTP.getSettings().getRedisPassword();
-        if (!jedisPassword.equals("")) {
-            jedis.auth(jedisPassword);
+        JedisPoolConfig config = new JedisPoolConfig();
+        config.setMaxTotal(16);
+        jedisPool = new JedisPool(config, HuskBungeeRTP.getSettings().getRedisHost(),
+                HuskBungeeRTP.getSettings().getRedisPort(), 2000, HuskBungeeRTP.getSettings().getRedisPassword());
+
+        try (Jedis jedis = jedisPool.getResource()) {
+            new Thread(() -> jedis.subscribe(new JedisPubSub() {
+                @Override
+                public void onMessage(String channel, String message) {
+                    if (!channel.equals(REDIS_CHANNEL)) {
+                        return;
+                    }
+                    String[] splitMessage = message.split("£");
+                    RedisMessage receivedMessage = new RedisMessage(splitMessage[0], RedisMessage.RedisMessageType.valueOf(splitMessage[1]), splitMessage[2]);
+                    if (!receivedMessage.getTargetServer().equals(HuskBungeeRTP.getSettings().getServerId())) {
+                        return;
+                    }
+                    Bukkit.getScheduler().runTask(HuskBungeeRTP.getInstance(), () -> handleReceivedMessage(receivedMessage));
+                }
+            }, REDIS_CHANNEL), "Redis Subscriber").start();
         }
-        jedis.connect();
-        new Thread(() -> jedis.subscribe(new JedisPubSub() {
-            @Override
-            public void onMessage(String channel, String message) {
-                if (!channel.equals(REDIS_CHANNEL)) {
-                    return;
-                }
-                String[] splitMessage = message.split("£");
-                RedisMessage receivedMessage = new RedisMessage(splitMessage[0], RedisMessage.RedisMessageType.valueOf(splitMessage[1]), splitMessage[2]);
-                if (!receivedMessage.getTargetServer().equals(HuskBungeeRTP.getSettings().getServerId())) {
-                    return;
-                }
-                Bukkit.getScheduler().runTask(HuskBungeeRTP.getInstance(), () -> handleReceivedMessage(receivedMessage));
-            }
-        }, REDIS_CHANNEL), "Redis Subscriber").start();
     }
 
     public static void publish(RedisMessage message) {
-        try (Jedis publisher = new Jedis(HuskBungeeRTP.getSettings().getRedisHost(), HuskBungeeRTP.getSettings().getRedisPort())) {
-            final String jedisPassword = HuskBungeeRTP.getSettings().getRedisPassword();
-            if (!jedisPassword.equals("")) {
-                publisher.auth(jedisPassword);
+        Bukkit.getScheduler().runTaskAsynchronously(HuskBungeeRTP.getInstance(), () -> {
+            try (Jedis jedis = jedisPool.getResource()) {
+                jedis.publish(REDIS_CHANNEL, message.toString());
             }
-            publisher.connect();
-            publisher.publish(REDIS_CHANNEL, message.toString());
-        }
+        });
     }
 
     public static void handleReceivedMessage(RedisMessage message) {
