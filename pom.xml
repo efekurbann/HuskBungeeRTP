@@ -16,7 +16,7 @@
     <properties>
         <java.version>16</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jedis.version>3.7.1</jedis.version>
+        <jedis.version>4.2.3</jedis.version>
     </properties>
 
     <pluginRepositories>
@@ -130,7 +130,8 @@
             <groupId>biz.donvi</groupId>
             <artifactId>JakesRTP</artifactId>
             <version>0.14.8</version>
-            <scope>provided</scope>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/JakesRTP-v0.14.9.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>redis.clients</groupId>
